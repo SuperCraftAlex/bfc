@@ -72,6 +72,38 @@ int main(int argc, char **argv) {
     fread(buff, size, size, fp);
     fclose(fp);
 
+    char stemp[20];
+    int stempo = 0;
+    int is_parsing_stemp = 0;
+    for (int i = 0; i < (int)size) {
+        char c = buff[i];
+        if (c == '%) {
+            is_parsing_stemp = !is_parsing_stemp;
+            if (!is_parsing_stemp) {
+                stempo = 0;
+                int varam = strcspn(stemp, "0123456789");
+                char old = stemp[varam];
+                stemp[varam] = 0;
+
+                if (!strcmp(stemp, "cells")) {
+                    stemp[varam] = old;
+                    memsize = atoi(stemp+varam);
+                }
+                else if (!strcmp(stemp, "cello")) {
+                    stemp[varam] = old;
+                    cell_off = atoi(stemp+varam);
+                }
+
+                memset(stemp, 0, 20);
+            }
+            continue;
+        }
+        if (is_parsing_stemp) {
+            stemp[stempo] = c;
+            stempo ++;
+        }
+    }
+
     // strip comments
     char *buff2 = malloc(size);
     int y = 0;
