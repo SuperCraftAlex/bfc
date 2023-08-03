@@ -94,6 +94,9 @@ int main(int argc, char **argv) {
     write_asm("section .data\ncells:\n");
     writef_asm("    times %i db 0\n\n", memsize);
     writef_asm("section .text\n    global _start\n\n_start:\n    mov ecx, cells+%i\n\n", cell_off);
+    for (int i = 0; i < memsize; i ++) {
+        write_byte(0x00);
+    }
     for (size_t i = 0; i < size; i++) {
         char c = buff[i];
         if (c == '\n') {
