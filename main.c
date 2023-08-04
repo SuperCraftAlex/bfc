@@ -1,3 +1,26 @@
+// ======================================================================================
+// ======================= B R A I N F U C K   C O M P I L E R ==========================
+// ======================================================================================
+//
+// (written by alex aka alex_s168)
+//
+// supported operating systems:
+// - linux
+//
+// supported architectures:
+// - 32bit x86
+//
+// supported brainfuck variations:
+// - brainfuck
+//
+// credits:
+// - ote aka otesunki (help with x86)
+//
+// !WARNING¡ this file contains commented-out comments!
+// !DISCLAIMER¡ this is the least efficient code i ever wrote
+// !DISCLAIMER¡ i know that macros are not used like this
+//
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,6 +36,11 @@ typedef int8_t s_byte;
 typedef int16_t s_word;
 typedef int32_t s_dword;
 typedef int64_t s_qword;
+
+
+#define SDWORD_MAX 2147483647;
+#define SWORD_MAX 32768;
+#define SBYTE_MAX 127;
 
 #define mode32 (mode == 32)
 #define mode64 (mode == 64)
@@ -34,10 +62,12 @@ typedef int64_t s_qword;
 #define write_sqword(x) if(!gen_sources) {fwrite(&((s_qword)x), sizeof(s_qword), 1, fp);}
 
 
-#define warn(x) printf(x); \
+#define warn(x) printf("%s", x); \
     if (werror) {          \
         return 1;          \
     }
+
+#define error(x) printf("%s", x); return 1;
 
 struct SymbolDef {
     size_t addr;
@@ -63,18 +93,45 @@ struct SymbolRef {
     size_t pos;               /* position of the reference (in the file) (to be overwritten) */
     enum SymbolRefType type;  /* type of the reference*/
     char *name;
+    unsigned int off;	      /* absolute offset */
+
+    /* only resolve this symbol if condition is true or when is_cond_rel == 0 */
+    unsigned int is_cond_rel;
+    int c_rel_backw_max;
+    int c_rel_baclw_min:
+    int c_rel_forw_min;
+    int c_rel_forw_max;
+    unsigned int remove_left_ifn_c;  /* if the condition is false, it undos x bytes from left */
+    unsigned int remove_right_ifn_c; /* if the condition is false, it undos x bytes from the right */
 };
 
 // thats 100% what macros are supposed to do
 // why shouldn't it?
 // ps: ote don't kill me, thanks
-#define add_sy_ref(pos, type, name) if (!gen_sources) { \
-        sy_refs = realloc(sy_refs, sizeof(struct SymbolRef *) * (sy_refs_am + 1)); \
-        struct SymbolRef *ref = malloc(sizeof(struct SymbolRef)); \
-        sy_refs[sy_refs_am++] = ref; \
-        ref->name = name; \
-        ref->type = type; \
-        ref->pos = pos; \
+#define add_sy_ref_RAW \
+    sy_refs = realloc(sy_refs, sizeof(struct SymbolRef *) * (sy_refs_am + 1)); \
+    struct SymbolRef *ref = malloc(sizeof(struct SymbolRef)); \
+    sy_refs[sy_refs_am++] = ref; \
+    ref->name = name; \
+    ref->type = type; \
+    ref->pos = pos; \
+    ref->off = off;
+
+
+#define add_sy_ref(pos, type, name, off) if (!gen_sources) { \
+        add_sy_ref_RAW \
+        ref->is_cond_rel = 0; \
+    }
+
+#define add_sy_ref_cond(pos, type, name, off, backw_max, backw_min, forw_min, forw_max, leftrem, rightrem) if (!gen_sources) { \
+        add_sy_ref_RAW \
+        ref->is_cond_rel = 1; \
+        ref->c_rel_backw_max = backw_max; \
+        ref->c_rel_backw_min = backw_min; \
+        ref->c_rel_forw_min = forw_min; \
+        ref->c_rel_forw_max = forw_max; \
+        ref->remove_left_ifn_c = leftrem; \
+        ref->remove_right_ifn_c = rightrem; \
     }
 
 // ote look away for some lines, thanks
@@ -89,9 +146,24 @@ struct SymbolRef {
 // okay
 #define add_sy_def(addr, name) if (!gen_sources) { \
         sy_defs = realloc(sy_defs, sizeof(struct SymbolDef *) * (sy_refs_am + 1)); \
-        // i should use a macro for ^that buuuuut
-        // ....yeah
+        /* i should use a macro for ^that buuuuut */ \
+        /* ....yeah */ \
         struct SymbolDef *sy = malloc(sizeof(struct SymbolDef)); \
+        sy_defs[sy_defs_am++] = sy; \
+        sy->name = name; \
+        sy->addr = arddr; \
+    }
+
+// OTE YOU CAN LOOK AGAIN!
+
+// is this macro okay?
+#define write_bytes(x, amount) for (size_t x = 0; x < amount; x++) { write_byte(x); }
+
+enum Arch {
+    x86,
+    arm,
+    riscv
+};
 
 int main(int argc, char **argv) {
     int werror = 0;
@@ -100,7 +172,7 @@ int main(int argc, char **argv) {
     int used_in_syscall = 0;
 
     if (argc < 3) {
-        printf("Usage: bfc (-m(32|64)) (-s[mem size]) (-S) (-o[cell starting offset]) [infile] [outfile (nasm)]\n");
+        printf("Usage: bfc (-a(x86|arm|riscv)) (-m(32|64)) (-s[mem size]) (-S) (-o[cell starting offset]) [infile] [outfile (nasm)]\n");
         return 1;
     }
 
@@ -108,12 +180,24 @@ int main(int argc, char **argv) {
     int mode = 32;
     int gen_sources = 0;
     int cell_off = -1;
+    enum Arch arch = Arch.x86;
 
     for (int i = 0; i < argc-2; i ++) {
         char *x = argv[i+1];
         char c = x[1];
 
-        if (c == 'm') {
+        if (c == 'a') {
+            char *a = x+2;
+            if (!strcmp(a, "x86"))
+                arch = Arch.x86;
+            else if (!strcmp(a, "arm"))
+                arch = Arch.arm;
+            else if (!strcmp(a, "riscv"))
+                arch = Arch.riscv;
+            else
+                error("Architecture not supported!\n");
+        }
+        else if (c == 'm') {
             mode = atoi(x+2);
         }
         else if (c == 's') {
@@ -127,16 +211,16 @@ int main(int argc, char **argv) {
         }
     }
 
-    if (cell_off < 0) {
+    if (arch != Arch.x86)
+        error("Architecture not supported yet!\n");
+
+    if (cell_off < 0)
         cell_off = memsize / 2;
-    }
 
     FILE *fp;
 
-    if (mode != 32) {
-        printf("Unsupported mode! Supported: 32\n");
-        return 1;
-    }
+    if (mode != 32)
+        error("Unsupported mode! Supported: 32\n");
 
     fp = fopen(argv[argc-2], "r");
     fseek(fp, 0L, SEEK_END);
@@ -209,11 +293,13 @@ int main(int argc, char **argv) {
     writef_asm("section .text\n    global _start\n\n_start:\n    mov ecx, cells+%i\n\n", cell_off);
 
     // data section
-    for (int i = 0; i < memsize; i ++) {
-        write_byte(0x00);
-    }
+    add_sy_def(ftell(), "cells");
+    write_bytes(0x00, memsize);
     // code section
-
+    add_sy_def(ftell(), "_start");
+    write_byte(0xb9);                               	         /* mov ecx, IMMEDIATE-DWORD  */
+    add_sy_ref(ftell(), SymbolRefType.abs32, "cells", cell_off);
+    write_dword(0);
 
     for (size_t i = 0; i < size; i++) {
         char c = buff[i];
@@ -223,37 +309,75 @@ int main(int argc, char **argv) {
         if (mode32) {
             if (c == '>') {         // increment pt
                 write_asm("    inc ecx\n");
+                write_byte(0x41);
             }
             else if (c == '<') {    // decrement pt
                 write_asm("    dec ecx\n");
+                write_byte(0x49);
             }
             else if (c == '+') {    // inc cell at pt
                 int am = (int)strspn(buff + i, "+");
                 if (am > 1) {
                     writef_asm("    add byte [ecx], %i\n", am);
+		    // too lazy to look at coders32 sooo
+                    // yeah
+
+                    // OMG WHAT IF I JUST RUN IT TROUGHT NASM AND THEN DO OBJDUM???
+                    // big brain move
+		    write_byte(0x80);    /* addb */
+                    write_byte(0x01);
+                    write_byte((byte)am);
                     i += am-1;
                     continue;
                 } else {
                     write_asm("    inc byte [ecx]\n");
+                    write_byte(0xfe);    /* incb */
+                    write_byte(0x01);
                 }
             }
             else if (c == '-') {    // dec cell at pt
                 int am = (int)strspn(buff + i, "-");
                 if (am > 1) {
                     writef_asm("    sub byte [ecx], %i\n", am);
+                    write_byte(0x80);    /* subb */
+                    write_byte(0x29);
+                    write_byte((byte)am);
                     i += am-1;
                     continue;
                 } else {
                     write_asm("    dec byte [ecx]\n");
+                    write_byte(0xfe);    /* decb */
+                    write_byte(0x09)
                 }
             }
             else if (c == '.') {    // output char cell at pt
                 used_out_syscall = 1;
                 write_asm("    call putchar\n");
+                // // how the fuck do i implement relative calls and jumps?
+                // // anywaaaays
+                // write_byte(0xe8);        /* call */
+                // add_sy_ref(ftell(), SymbolRefType.abs32, "putchar", 0);
+
+                // partially implemented cool shit, so now i can do:
+                // this one byte is only requiered in 32 bit mode
+                // doesnt work in 64 bits at all (i think)
+                // in 16 bit mode, not requiered
+                write_byte(0x66);	 /* 16 bit; call rel16/32 */
+                write_byte(0xe8);
+                add_sy_ref_cond(ftell(), SymbolRefType.rel16, "putchar", SWORD_MAX, 0, 0, SWORD_MAX, 2, 0);
+                // in case the offset is bigger than signed 16 bit
+                write_byte(0xe8); 	 /* call rel16/32 */
+                add_sy_ref_cond(ftell(), SymbolRefType.rel32, "putchar", SDWORD_MAX, SWORD_MAX+1, SWORD_MAX+1, SDWORD_MAX, 1, 2);
+                write_dword(0);
             }
             else if (c == ',') {    // input char cell at pt
-                used_in_syscall = 1;
                 write_asm("    call getchar\n");
+                write_byte(0x66);	 /* 16 bit; call rel16/32 */
+                write_byte(0xe8);
+                add_sy_ref_cond(ftell(), SymbolRefType.rel16, "getchar", SWORD_MAX, 0, 0, SWORD_MAX, 2, 0);
+                write_byte(0xe8); 	 /* call rel16/32 */
+                add_sy_ref_cond(ftell(), SymbolRefType.rel32, "getchar", SDWORD_MAX, SWORD_MAX+1, SWORD_MAX+1, SDWORD_MAX, 1, 2);
+                write_dword(0);
             }
             else if (c == '[') {    // jumps after the corresponding ']' instruction if the cell val is 0
                 int corr = -1;
@@ -273,15 +397,31 @@ int main(int argc, char **argv) {
                     }
                 }
 
+		// the fuck did i do  here????
                 if (corr > 0) {
                     write_asm("    xor eax, eax\n");
                     write_asm("    mov al, [ecx]\n");
                     write_asm("    test eax, eax\n");
                     writef_asm("    jz close_%i\n", corr);
                     writef_asm("open_%i:\n", corr);
+                    // okaaay so
+                    // NASM WORK PLEAAASE
+		    write_byte(0x31);     /* xor */
+                    write_byte(0xc0);
+                    write_byte(0x8a);     /* mov */
+                    write_byte(0x01);
+                    write_byte(0x85);     /* test */
+                    write_byte(0xc0);
+                    // wait
+                    // just realised that i didnt even write this
+                    //  ~~ote gave it to me~~
+
+		    // // just realised i HAVE TO implement a system to do relative jumps for stuff like je...
+                    // okay implemented it
+                    
                 }
                 else {
-                    warn("warning: unclosed square brackets!\n");
+                    error("unclosed square brackets!\n");
                 }
             }
             else if (c == ']') {    // jumps after the corresponding '[' instruction if the cell val is not 0
@@ -334,6 +474,13 @@ int main(int argc, char **argv) {
         // todo: convert file with name fn to elf
     }
 
-    // todo: free sy_refs and sy_defs
+    for (size_t i = 0; i < sy_refs_am)
+        free(sy_refs[i]);
+
+    for (size_t i = 0; i < sy_defs_am)
+        free(sy_defs[i]);
+
+    free(sy_refs);
+    free(sy_defs);
     return 0;
 }
