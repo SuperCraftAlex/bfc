@@ -2,8 +2,17 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <stdint.h>
 
-typef unsigned char byte;
+typedef uint8_t byte;
+typedef uint16_t word;
+typedef uint32_t dword;
+typedef uint64_t qword;
+
+typedef int8_t s_byte;
+typedef int16_t s_word;
+typedef int32_t s_dword;
+typedef int64_t s_qword;
 
 #define mode32 (mode == 32)
 #define mode64 (mode == 64)
@@ -11,7 +20,7 @@ typef unsigned char byte;
 #define write_asm(x) if(gen_sources) {fputs(x, fp);}
 #define writef_asm(...) if(gen_sources) {fprintf(fp, __VA_ARGS__);}
 
-#define write_byte(x) if(!gen_sources) {fwrite(&x, sizeof(byte), 1, fp);}
+#define write_byte(x) if(!gen_sources) {fwrite(&((byte)x), sizeof(byte), 1, fp);}
 
 #define warn(x) printf(x); \
     if (werror) {          \
