@@ -293,12 +293,12 @@ int main(int argc, char **argv) {
     writef_asm("section .text\n    global _start\n\n_start:\n    mov ecx, cells+%i\n\n", cell_off);
 
     // data section
-    add_sy_def(ftell(), "cells");
+    add_sy_def(ftell(fp), "cells");
     write_bytes(0x00, memsize);
     // code section
-    add_sy_def(ftell(), "_start");
+    add_sy_def(ftell(fp), "_start");
     write_byte(0xb9);                               	         /* mov ecx, IMMEDIATE-DWORD  */
-    add_sy_ref(ftell(), SymbolRefType.abs32, "cells", cell_off);
+    add_sy_ref(ftell(fp), SymbolRefType.abs32, "cells", cell_off);
     write_dword(0);
 
     for (size_t i = 0; i < size; i++) {
@@ -356,7 +356,7 @@ int main(int argc, char **argv) {
                 // // how the fuck do i implement relative calls and jumps?
                 // // anywaaaays
                 // write_byte(0xe8);        /* call */
-                // add_sy_ref(ftell(), SymbolRefType.abs32, "putchar", 0);
+                // add_sy_ref(ftell(fp), SymbolRefType.abs32, "putchar", 0);
 
                 // partially implemented cool shit, so now i can do:
                 // this one byte is only requiered in 32 bit mode
@@ -364,19 +364,19 @@ int main(int argc, char **argv) {
                 // in 16 bit mode, not requiered
                 write_byte(0x66);	 /* 16 bit; call rel16/32 */
                 write_byte(0xe8);
-                add_sy_ref_cond(ftell(), SymbolRefType.rel16, "putchar", SWORD_MAX, 0, 0, SWORD_MAX, 2, 0);
+                add_sy_ref_cond(ftell(fp), SymbolRefType.rel16, "putchar", SWORD_MAX, 0, 0, SWORD_MAX, 2, 0);
                 // in case the offset is bigger than signed 16 bit
                 write_byte(0xe8); 	 /* call rel16/32 */
-                add_sy_ref_cond(ftell(), SymbolRefType.rel32, "putchar", SDWORD_MAX, SWORD_MAX+1, SWORD_MAX+1, SDWORD_MAX, 1, 2);
+                add_sy_ref_cond(ftell(fp), SymbolRefType.rel32, "putchar", SDWORD_MAX, SWORD_MAX+1, SWORD_MAX+1, SDWORD_MAX, 1, 2);
                 write_dword(0);
             }
             else if (c == ',') {    // input char cell at pt
                 write_asm("    call getchar\n");
                 write_byte(0x66);	 /* 16 bit; call rel16/32 */
                 write_byte(0xe8);
-                add_sy_ref_cond(ftell(), SymbolRefType.rel16, "getchar", SWORD_MAX, 0, 0, SWORD_MAX, 2, 0);
+                add_sy_ref_cond(ftell(fp), SymbolRefType.rel16, "getchar", SWORD_MAX, 0, 0, SWORD_MAX, 2, 0);
                 write_byte(0xe8); 	 /* call rel16/32 */
-                add_sy_ref_cond(ftell(), SymbolRefType.rel32, "getchar", SDWORD_MAX, SWORD_MAX+1, SWORD_MAX+1, SDWORD_MAX, 1, 2);
+                add_sy_ref_cond(ftell(fp), SymbolRefType.rel32, "getchar", SDWORD_MAX, SWORD_MAX+1, SWORD_MAX+1, SDWORD_MAX, 1, 2);
                 write_dword(0);
             }
             else if (c == '[') {    // jumps after the corresponding ']' instruction if the cell val is 0
@@ -418,7 +418,18 @@ int main(int argc, char **argv) {
 
 		    // // just realised i HAVE TO implement a system to do relative jumps for stuff like je...
                     // okay implemented it
-                    
+                    // ONLY IN 32 BIT MODE:
+                    write_byte(0x66);     /* 16 bit; je rel16 */
+                    write_byte(0x0F);
+                    write_byte(0x84);
+                    add_sy_ref_cond(ftell(fp), SymbolRefType.rel16, sprintf("close_%i", corr), SWORD_MAX, 0, 0, SWORD_MAX, 2, 0);
+                    write_byte(0x0F); 	  /* je rel32 */
+                    write_byte(0x84);
+                    add_sy_ref_cond(ftell(fp), SymbolRefType.rel32, sprintf("close_%i", corr), SDWORD_MAX, SWORD_MAX+1, SWORD_MAX+1, SDWORD_MAX, 1, 2);
+                    write_dword(0);
+
+                    add_sy_def(ftell(fp), sprintf("open_%i", corr));
+
                 }
                 else {
                     error("unclosed square brackets!\n");
