@@ -102,10 +102,22 @@ int main(int argc, char **argv) {
         }
         if (mode32) {
             if (c == '>') {         // increment pt
-                fputs("    inc ecx\n", fp);
+                int am = (int)strspn(buff + i, ">");
+                if (am > 1) {
+                    fprintf(fp, "    add ecx, %i\n", am);
+                    i += am-1;
+                } else {
+                    fputs("    inc ecx\n", fp);
+                }
             }
             else if (c == '<') {    // decrement pt
-                fputs("    dec ecx\n", fp);
+                int am = (int)strspn(buff + i, "<");
+                if (am > 1) {
+                    fprintf(fp, "    sub ecx, %i\n", am);
+                    i += am-1;
+                } else {
+                    fputs("    dec ecx\n", fp);
+                }
             }
             else if (c == '+') {    // inc cell at pt
                 int am = (int)strspn(buff + i, "+");
