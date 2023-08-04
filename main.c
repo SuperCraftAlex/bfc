@@ -148,6 +148,13 @@ int main(int argc, char **argv) {
                 fputs("    call getchar\n", fp);
             }
             else if (c == '[') {    // jumps after the corresponding ']' instruction if the cell val is 0
+                // optimization for "[-]" (= set 0):
+                if (buff[i+1] == '-' && buff[i+2] == ']') {
+                    fputs("    mov byte[ecx], 0\n", fp);
+                    i += 2;
+                    continue;
+                }
+
                 int corr = -1;
                 int ind = 0;
                 for (size_t x = i + 1; x < size; x ++) {
