@@ -27,6 +27,7 @@
 #include <unistd.h>
 #include <stdint.h>
 
+
 typedef uint8_t byte;
 typedef uint16_t word;
 typedef uint32_t dword;
@@ -98,7 +99,7 @@ struct SymbolRef {
     /* only resolve this symbol if condition is true or when is_cond_rel == 0 */
     unsigned int is_cond_rel;
     int c_rel_backw_max;
-    int c_rel_baclw_min:
+    int c_rel_baclw_min;
     int c_rel_forw_min;
     int c_rel_forw_max;
     unsigned int remove_left_ifn_c;  /* if the condition is false, it undos x bytes from left */
@@ -159,10 +160,10 @@ struct SymbolRef {
 // is this macro okay?
 #define write_bytes(x, amount) for (size_t x = 0; x < amount; x++) { write_byte(x); }
 
-enum Arch {
-    x86,
-    arm,
-    riscv
+enum target_arch {
+    tg_x86,
+    tg_arm,
+    tg_riscv
 };
 
 int main(int argc, char **argv) {
@@ -180,7 +181,7 @@ int main(int argc, char **argv) {
     int mode = 32;
     int gen_sources = 0;
     int cell_off = -1;
-    enum Arch arch = Arch.x86;
+    enum target_arch arch = tg_x86;
 
     for (int i = 0; i < argc-2; i ++) {
         char *x = argv[i+1];
@@ -189,11 +190,11 @@ int main(int argc, char **argv) {
         if (c == 'a') {
             char *a = x+2;
             if (!strcmp(a, "x86"))
-                arch = Arch.x86;
+                arch = tg_x86;
             else if (!strcmp(a, "arm"))
-                arch = Arch.arm;
+                arch = tg_arm;
             else if (!strcmp(a, "riscv"))
-                arch = Arch.riscv;
+                arch = tg_riscv;
             else
                 error("Architecture not supported!\n");
         }
@@ -211,7 +212,7 @@ int main(int argc, char **argv) {
         }
     }
 
-    if (arch != Arch.x86)
+    if (arch != tg_x86)
         error("Architecture not supported yet!\n");
 
     if (cell_off < 0)
@@ -233,9 +234,9 @@ int main(int argc, char **argv) {
     char stemp[20];
     int stempo = 0;
     int is_parsing_stemp = 0;
-    for (int i = 0; i < (int)size) {
+    for (int i = 0; i < (int)size; i ++) {
         char c = buff[i];
-        if (c == '%) {
+        if (c == '%') {
             is_parsing_stemp = !is_parsing_stemp;
             if (!is_parsing_stemp) {
                 stempo = 0;
@@ -282,10 +283,10 @@ int main(int argc, char **argv) {
     fp = fopen(fn, "w");
     int localid = 0;
 
-    struct SymbolDef *sy_defs = malloc(1 * sizeof(*sys_defs));
+    struct SymbolDef *sy_defs = malloc(1 * sizeof(sys_defs *));
     size_t sy_defs_am = 0;
 
-    struct SymbolRef *sy_refs = malloc(1 * sizeof(*sys_defs));
+    struct SymbolRef *sy_refs = malloc(1 * sizeof(sys_defs *));
     size_t sy_refs_am = 0;
 
     write_asm("section .data\ncells:\n");
