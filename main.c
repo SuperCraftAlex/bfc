@@ -19,14 +19,25 @@ int main(int argc, char **argv) {
     int used_in_syscall = 0;
 
     if (argc < 3) {
-        printf("Usage: bfc (-m(32|64)) (-s[mem size]) (-S) (-o[cell starting offset]) [infile] [outfile (nasm)]\n");
+        printf("brainfuck compiller written by alex_s168\n\n");
+        printf("Usage: bfc (-m(32|64)) (-s[mem size]) (-p[amount of pp passes]) (-o[cell starting offset]) (-S) (-P) [infile] [outfile]\n\n");
+        printf(" -m[mode]          set the mode of the architecture\n");
+        printf("    32                32 bit\n");
+        printf("    64                64 bit\n");
+        printf(" -s[mem size]      sets the target memory size (=amount of cells)\n");
+        printf(" -p[amount]        sets the amount of preprocessor passes\n");
+        printf(" -o[offset]        sets the starting position of the pointer\n");
+        printf(" -S                only outputs the nasm code\n");
+        printf(" -P                only runs the preprocessor\n");
         return 1;
     }
 
     int memsize = 100;
     int mode = 32;
     int gen_sources = 0;
+    int only_pp = 0;
     int cell_off = -1;
+    int pp_passes = 1;
 
     for (int i = 0; i < argc-2; i ++) {
         char *x = argv[i+1];
@@ -41,9 +52,25 @@ int main(int argc, char **argv) {
         else if (c == 'S') {
             gen_sources = 1;
         }
+        else if (c == 'P') {
+            only_pp = 1;
+        }
         else if (c == 'o') {
             cell_off = atoi(x+2);
         }
+        else if (c == 'p') {
+            pp_passes = atoi(x+2);
+        }
+    }
+
+    if (pp_passes < 0) {
+        printf("preprocessor passes cant be negative!\n");
+        return 1;
+    }
+
+    if (only_pp && gen_sources) {
+        printf("invalid combination of arguments: -P -S!\n");
+        return 1;
     }
 
     if (cell_off < 0) {
@@ -65,23 +92,11 @@ int main(int argc, char **argv) {
     fread(buff, size, size, fp);
     fclose(fp);
 
-    // strip symbols
-    char *buff2 = malloc(size);
-    int y = 0;
-    for (size_t i = 0; i < size; i++) {
-        char c = buff[i];
-        if ( c == '>' || c == '<' || c == '+' || c == '-' || c == '.' || c == ',' || c == '[' || c == ']') {
-            buff2[y] = c;
-            y ++;
-        }
-    }
-    free(buff);
-    buff = realloc(buff2, y);
-    buff[y] = 0;
-    size = y;
+    if (pp_passes == 0)
+        warn("preprocessor disabled!\n");
 
     char fn[100];
-    if (!gen_sources) {
+    if (!(gen_sources || only_pp)) {
         strcpy(fn, argv[argc-2]);
         strcat(fn, ".nasm");
     }
@@ -89,6 +104,36 @@ int main(int argc, char **argv) {
         strcpy(fn, argv[argc-1]);
     }
     fp = fopen(fn, "w");
+
+    // preprocessor
+    for (int pass = 0; pass < pp_passes; pass ++) {
+        char *buff2 = malloc(size+1);
+        int y = 0;
+        for (size_t i = 0; i < size; i++) {
+            char c = buff[i];
+            if (!(c == '>' || c == '<' || c == '+' || c == '-' || c == '.' || c == ',' || c == '[' || c == ']')) {
+                continue;
+            }
+            // remove contradicting shit
+            if (i+1 < size) {
+                char next = buff[i+1];
+                if ((c == '>' && next == '<') || (c == '+' && next == '-') || (c == '-' && next == '+')) { continue; }
+            }
+            buff2[y] = c;
+            y ++;
+        }
+        free(buff);
+        buff = realloc(buff2, y);
+        buff[y] = 0;
+        size = y;
+    }
+
+    if (only_pp) {
+        fwrite(buff, 1, size, fp);
+        fclose(fp);
+        return 0;
+    }
+
     int localid = 0;
 
     // nasm header
@@ -140,18 +185,73 @@ int main(int argc, char **argv) {
                 }
             }
             else if (c == '.') {    // output char cell at pt
+                int it = 0;
+                while ((it++) + i < size) {
+                    if (it % 2 == 0 && buff[it+i] != '.')
+                        break;
+                    if (it % 2 == 1 && buff[it+i] != '>')
+                        break;
+                    it++;
+                }
+                if (it % 2 == 1)
+                    it--;
+                it = it / 2;
+
+                // TODO: decide if its worth it (for now if it is 3 or more prints chained)
+                if (it > 2) {
+                    // generate write(1, pt, x) syscall
+                    fputs("    mov eax, 4\n", fp);
+                    fputs("    mov ebx, 1\n", fp);
+                    fprintf(fp, "    mov edx, %i\n", it+1);
+                    fputs("    push ecx\n", fp);
+                    fputs("    int 0x80\n", fp);
+                    fputs("    pop ecx\n", fp);
+                    i += it * 2;
+                    continue;
+                }
                 used_out_syscall = 1;
                 fputs("    call putchar\n", fp);
             }
             else if (c == ',') {    // input char cell at pt
+                int it = 0;
+                while ((it++) + i < size) {
+                    if (it % 2 == 0 && buff[it+i] != ',')
+                        break;
+                    if (it % 2 == 1 && buff[it+i] != '>')
+                        break;
+                    it++;
+                }
+                if (it % 2 == 1)
+                    it--;
+                it = it / 2;
+
+                // TODO: decide if its worth it (for now if it is 3 or more prints chained)
+                if (it > 2) {
+                    // generate read(0, pt, x) syscall
+                    fputs("    mov eax, 3\n", fp);
+                    fputs("    mov ebx, 0\n", fp);
+                    fprintf(fp, "    mov edx, %i\n", it+1);
+                    fputs("    push ecx\n", fp);
+                    fputs("    int 0x80\n", fp);
+                    fputs("    pop ecx\n", fp);
+                    fputs("    test eax, eax\n", fp);
+                    fprintf(fp, "    jnz .L%i\n", localid);
+                    fputs("    mov byte [ecx], 0\n", fp);
+                    fprintf(fp, ".L%i:\n", localid);
+                    localid ++;
+                    i += it * 2;
+                    continue;
+                }
                 used_in_syscall = 1;
                 fputs("    call getchar\n", fp);
             }
             else if (c == '[') {    // jumps after the corresponding ']' instruction if the cell val is 0
                 // optimization for "[-]" (= set 0):
-                if (buff[i+1] == '-' && buff[i+2] == ']') {
-                    fputs("    mov byte[ecx], 0\n", fp);
-                    i += 2;
+                if (i+2 < size && buff[i+1] == '-' && buff[i+2] == ']') {
+                    int after = (int)strspn(buff + i + 3, "+");
+                    fprintf(fp, "    mov byte [ecx], %i\n", after);
+                    i += 2 + after;
+
                     continue;
                 }
 
