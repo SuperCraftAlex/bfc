@@ -20,12 +20,78 @@ typedef int64_t s_qword;
 #define write_asm(x) if(gen_sources) {fputs(x, fp);}
 #define writef_asm(...) if(gen_sources) {fprintf(fp, __VA_ARGS__);}
 
+
 #define write_byte(x) if(!gen_sources) {fwrite(&((byte)x), sizeof(byte), 1, fp);}
+#define write_sbyte(x) if(!gen_sources) {fwrite(&((s_byte)x), sizeof(byte), 1, fp);}
+
+#define write_word(x) if(!gen_sources) {fwrite(&((word)x), sizeof(word), 1, fp);}
+#define write_sword(x) if(!gen_sources) {fwrite(&((s_word)x), sizeof(s_word), 1, fp);}
+
+#define write_dword(x) if(!gen_sources) {fwrite(&((dword)x), sizeof(dword), 1, fp);}
+#define write_sdword(x) if(!gen_sources) {fwrite(&((s_dword)x), sizeof(s_dword), 1, fp);}
+
+#define write_qword(x) if(!gen_sources) {fwrite(&((qword)x), sizeof(qword), 1, fp);}
+#define write_sqword(x) if(!gen_sources) {fwrite(&((s_qword)x), sizeof(s_qword), 1, fp);}
+
 
 #define warn(x) printf(x); \
     if (werror) {          \
         return 1;          \
     }
+
+struct SymbolDef {
+    size_t addr;
+    char *name;
+};
+
+enum SymbolRefType {
+    // unsigned integers
+    // abs = "absolute"
+    abs16,
+    abs24,
+    abs32,
+    abs64,
+
+    // 2s complement signed integers
+    // rel = "relative"
+    rel8,
+    rel16,
+    rel32
+};
+
+struct SymbolRef {
+    size_t pos;               /* position of the reference (in the file) (to be overwritten) */
+    enum SymbolRefType type;  /* type of the reference*/
+    char *name;
+};
+
+// thats 100% what macros are supposed to do
+// why shouldn't it?
+// ps: ote don't kill me, thanks
+#define add_sy_ref(pos, type, name) if (!gen_sources) { \
+        sy_refs = realloc(sy_refs, sizeof(struct SymbolRef *) * (sy_refs_am + 1)); \
+        struct SymbolRef *ref = malloc(sizeof(struct SymbolRef)); \
+        sy_refs[sy_refs_am++] = ref; \
+        ref->name = name; \
+        ref->type = type; \
+        ref->pos = pos; \
+    }
+
+// ote look away for some lines, thanks
+
+// OTE LOOK AWAAAAY
+// **OTE STOP LOOKING**
+
+// okay i think ote isn't looking
+
+// (had to do it again)
+// (OTE IM SORRY BUT DONT LOOK)
+// okay
+#define add_sy_def(addr, name) if (!gen_sources) { \
+        sy_defs = realloc(sy_defs, sizeof(struct SymbolDef *) * (sy_refs_am + 1)); \
+        // i should use a macro for ^that buuuuut
+        // ....yeah
+        struct SymbolDef *sy = malloc(sizeof(struct SymbolDef)); \
 
 int main(int argc, char **argv) {
     int werror = 0;
@@ -61,7 +127,6 @@ int main(int argc, char **argv) {
         }
     }
 
-    // todo: automatize
     if (cell_off < 0) {
         cell_off = memsize / 2;
     }
@@ -98,7 +163,7 @@ int main(int argc, char **argv) {
                     stemp[varam] = old;
                     memsize = atoi(stemp+varam);
                 }
-                
+
                 else if (!strcmp(stemp, "cello")) {
                     stemp[varam] = old;
                     cell_off = atoi(stemp+varam);
@@ -133,6 +198,12 @@ int main(int argc, char **argv) {
     fp = fopen(fn, "w");
     int localid = 0;
 
+    struct SymbolDef *sy_defs = malloc(1 * sizeof(*sys_defs));
+    size_t sy_defs_am = 0;
+
+    struct SymbolRef *sy_refs = malloc(1 * sizeof(*sys_defs));
+    size_t sy_refs_am = 0;
+
     write_asm("section .data\ncells:\n");
     writef_asm("    times %i db 0\n\n", memsize);
     writef_asm("section .text\n    global _start\n\n_start:\n    mov ecx, cells+%i\n\n", cell_off);
@@ -142,7 +213,7 @@ int main(int argc, char **argv) {
         write_byte(0x00);
     }
     // code section
-    
+
 
     for (size_t i = 0; i < size; i++) {
         char c = buff[i];
@@ -262,5 +333,7 @@ int main(int argc, char **argv) {
     if (!gen_sources) {
         // todo: convert file with name fn to elf
     }
+
+    // todo: free sy_refs and sy_defs
     return 0;
 }
