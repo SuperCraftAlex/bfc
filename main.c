@@ -118,28 +118,25 @@ struct SymbolRef {
     unsigned int remove_right_ifn_c; /* if the condition is false, it undos x bytes from the right */
 };
 
-#define add_sy_ref_RAW \
-    sy_refs = realloc(sy_refs, sizeof(struct SymbolRef *) * (sy_refs_am + 1)); \
-    struct SymbolRef *ref = malloc(sizeof(struct SymbolRef)); \
-    sy_refs[sy_refs_am] = ref; \
-    ref->name = i_name; \
-    ref->type = i_type; \
-    ref->pos = i_pos; \
-    ref->off = i_off; \
-    sy_refs_am ++;
-
-struct SymbolRef *add_sy_ref_func(struct SymbolRef **sy_refs, size_t sy_refs_am, size_t i_pos, enum SymbolRefType i_type, char *i_name, int i_off) {
-    add_sy_ref_RAW
+struct SymbolRef *add_sy_ref_func(struct SymbolRef ***sy_refs, size_t *sy_refs_am, size_t i_pos, enum SymbolRefType i_type, char *i_name, int i_off) {
+    *sy_refs = realloc(*sy_refs, sizeof(struct SymbolRef *) * (*sy_refs_am + 1));
+    struct SymbolRef *ref = malloc(sizeof(struct SymbolRef));
+    (*sy_refs)[*sy_refs_am] = ref;
+    ref->name = i_name;
+    ref->type = i_type;
+    ref->pos = i_pos;
+    ref->off = i_off;
+    (*sy_refs_am) ++;
     ref->is_cond_rel = 0;
     return ref;
 }
 
 #define add_sy_ref(pos, type, name, off) if (!gen_sources) { \
-        add_sy_ref_func(sy_refs, sy_refs_am, pos, type, name, off); \
+        add_sy_ref_func(&sy_refs, &sy_refs_am, pos, type, name, off); \
     }
 
 #define add_sy_ref_cond(pos, type, name, off, backw_max, backw_min, forw_min, forw_max, leftrem, rightrem) if (!gen_sources) { \
-        struct SymbolRef *ref = add_sy_ref_func(sy_refs, sy_refs_am, pos, type, name, off); \
+        struct SymbolRef *ref = add_sy_ref_func(&sy_refs, &sy_refs_am, pos, type, name, off); \
         ref->is_cond_rel = 1; \
         ref->c_rel_backw_max = backw_max; \
         ref->c_rel_backw_min = backw_min; \
@@ -191,6 +188,52 @@ char *strformat(const char *format, ...) {
 
     va_end(args);
     return buff;
+}
+
+
+// requires pointer to text to be in the cell pointer register
+// preserves cell pointer register
+// stream 0 is stdin
+// if end-of-file: move 0 into cell at cell pointer register
+int gen_read_syscall(int mode, enum target_arch arch, FILE *fp, int gen_sources,
+                     udword stream, size_t amount) {
+    if (mode == 32 && arch == tg_x86) {
+        write_asm("    mov eax, 3\n");
+        writef_asm("    mov ebx, %iu\n", stream);
+        writef_asm("    mov edx, %i\n", amount);
+        write_asm("    push ecx\n");
+        write_asm("    int 0x80\n");
+        write_asm("    pop ecx\n");
+        write_asm("    test eax, eax\n");
+        writef_asm("    jnz .L%i\n", localid);
+        write_asm("    mov byte [ecx], 0\n");
+        writef_asm(".L%i\n", localid);
+
+        write_byte(0xB8);            /* mov */
+        write_dword(3);
+        write_byte(0xB9);            /* mov */
+        write_dword(stream);
+        write_byte(0xC0);            /* mov */
+        write_dword(amount);
+        write_byte(0x51);            /* push */
+        write_byte(0xCD);            /* int */
+        write_byte(0x80);
+        write_byte(0x59);            /* pop */
+        write_byte(0x85);            /* test */
+        write_byte(0xc0);
+        write_byte(0x66);            /* 16 bit; jnz rel16 */
+        write_byte(0x0F);
+        write_byte(0x85);
+        write_word(3);
+        write_byte(0xc6);            /* mov */
+        write_byte(0x01);
+        write_byte(0x00);
+
+        if (gen_sources)
+            localid ++;
+        return 0;
+    }
+    return 1;
 }
 
 int main(int argc, char **argv) {
@@ -351,14 +394,10 @@ int main(int argc, char **argv) {
                 int am = (int)strspn(buff + i, "+");
                 if (am > 1) {
                     writef_asm("    add byte [ecx], %i\n", am);
-		    // too lazy to look at coders32 sooo
-                    // yeah
 
-                    // OMG WHAT IF I JUST RUN IT TROUGHT NASM AND THEN DO OBJDUM???
-                    // big brain move
 		    write_byte(0x80);    /* addb */
                     write_byte(0x01);
-                    write_byte((byte)am);
+                    write_byte(am);
                     i += am-1;
                     continue;
                 } else {
@@ -373,7 +412,7 @@ int main(int argc, char **argv) {
                     writef_asm("    sub byte [ecx], %i\n", am);
                     write_byte(0x80);    /* subb */
                     write_byte(0x29);
-                    write_byte((byte)am);
+                    write_byte(am);
                     i += am-1;
                     continue;
                 } else {
@@ -385,12 +424,7 @@ int main(int argc, char **argv) {
             else if (c == '.') {    // output char cell at pt
                 used_out_syscall = 1;
                 write_asm("    call putchar\n");
-                // // how the fuck do i implement relative calls and jumps?
-                // // anywaaaays
-                // write_byte(0xe8);        /* call */
-                // add_sy_ref(ftell(fp), ref_abs32, "putchar", 0);
 
-                // partially implemented cool shit, so now i can do:
                 // this one byte is only requiered in 32 bit mode
                 // doesnt work in 64 bits at all (i think)
                 // in 16 bit mode, not requiered
@@ -429,73 +463,66 @@ int main(int argc, char **argv) {
                     }
                 }
 
-		// the fuck did i do  here????
                 if (corr > 0) {
-                    write_asm("    xor eax, eax\n");
-                    write_asm("    mov al, [ecx]\n");
-                    write_asm("    test eax, eax\n");
-                    writef_asm("    jz close_%i\n", corr);
+                    write_asm("    cmp byte [ecx], 0\n");
+                    writef_asm("    je close_%i\n", corr);
                     writef_asm("open_%i:\n", corr);
-                    // okaaay so
-                    // NASM WORK PLEAAASE
-		    write_byte(0x31);     /* xor */
-                    write_byte(0xc0);
-                    write_byte(0x8a);     /* mov */
-                    write_byte(0x01);
-                    write_byte(0x85);     /* test */
-                    write_byte(0xc0);
-                    // wait
-                    // just realised that i didnt even write this
-                    //  ~~ote gave it to me~~
 
-		    // // just realised i HAVE TO implement a system to do relative jumps for stuff like je...
-                    // okay implemented it
-                    // ONLY IN 32 BIT MODE:
+		    write_byte(0x80);     /* cmp */
+                    write_byte(0x39);
+                    write_byte(0x00);
+
                     write_byte(0x66);     /* 16 bit; je rel16 */
                     write_byte(0x0F);
                     write_byte(0x84);
-                    add_sy_ref_cond(ftell(fp), ref_rel16, strformat("close_%i", corr), 0, SWORD_MAX, 0, 0, SWORD_MAX, 2, 0);
+                    add_sy_ref_cond(ftell(fp), ref_rel16, strformat("close_%i", corr), 0, SWORD_MAX, 0, 0, SWORD_MAX, 3, 0);
                     write_byte(0x0F); 	  /* je rel32 */
                     write_byte(0x84);
-                    add_sy_ref_cond(ftell(fp), ref_rel32, strformat("close_%i", corr), 0, SDWORD_MAX, SWORD_MAX+1, SWORD_MAX+1, SDWORD_MAX, 1, 2);
+                    add_sy_ref_cond(ftell(fp), ref_rel32, strformat("close_%i", corr), 0, SDWORD_MAX, SWORD_MAX+1, SWORD_MAX+1, SDWORD_MAX, 2, 2);
                     write_dword(0);
 
                     add_sy_def(ftell(fp), strformat("open_%i", corr));
-
                 }
                 else {
                     error("unclosed square brackets!\n");
                 }
             }
             else if (c == ']') {    // jumps after the corresponding '[' instruction if the cell val is not 0
-                write_asm("    xor eax, eax\n");
-                write_asm("    mov al, [ecx]\n");
-                write_asm("    test eax, eax\n");
+                write_asm("    cmp byte [ecx], 0\n");
                 writef_asm("    jnz open_%i\n", (int)i);
                 writef_asm("close_%i:\n", (int)i);
+
+                write_byte(0x80);         /* cmp */
+                write_byte(0x39);
+                write_byte(0x00);
+
+                write_byte(0x66);         /* 16 bit; jnz rel16 */
+                write_byte(0x0F);
+                write_byte(0x85);
+                add_sy_ref_cond(ftell(fp), ref_rel16, strformat("open_%i", corr), 0, SWORD_MAX, 0, 0, SWORD_MAX, 3, 0);
+                write_byte(0x0F); 	  /* jnz rel32 */
+                write_byte(0x85);
+                add_sy_ref_cond(ftell(fp), ref_rel32, strformat("open_%i", corr), 0, SDWORD_MAX, SWORD_MAX+1, SWORD_MAX+1, SDWORD_MAX, 2, 2);
+                write_dword(0);
+
+                add_sy_def(ftell(fp), strformat("close_%i", corr));
+
             }
             else {
                 continue;
             }
         }
     }
-    // exit syscall
     if (mode32) {
-        fputs("end:\n    mov eax,1\n    mov ebx,0\n    int 0x80\n\n", fp);
+        // generate exit(0) syscall
+        write_asm("end:\n    mov eax,1\n    mov ebx,0\n    int 0x80\n\n");
         if (used_in_syscall) {
             // generate read(0, pt, 1) syscall
             write_asm("getchar:\n");
-            write_asm("    mov eax, 3\n");
-            write_asm("    mov ebx, 0\n");
-            write_asm("    mov edx, 1\n");
-            write_asm("    push ecx\n");
-            write_asm("    int 0x80\n");
-            write_asm("    pop ecx\n");
-            write_asm("    test eax, eax\n");
-            writef_asm("    jnz .L%i\n", localid);
-            write_asm("    mov byte [ecx], 0\n");
-            writef_asm(".L%i:\n", localid);
-            write_asm("    ret\n\n");
+            add_sy_def(ftell(fp), "getchar");
+            gen_read_syscall(mode, target_arch, fp, gen_sources, 0, 1);
+            write_asm("    ret\n");
+            write_byte(0xC3);
             localid ++;
         }
         if (used_out_syscall) {
@@ -510,12 +537,11 @@ int main(int argc, char **argv) {
             write_asm("    ret\n\n");
         }
     }
-    printf("ended compiller main loop!\n");
     fclose(fp);
     free(buff);
 
     if (!gen_sources) {
-        // todo: convert file with name fn to elf
+        // todo: convert file with name [fn] to elf
     }
 
     for (size_t i = 0; i < sy_refs_am; i++)
