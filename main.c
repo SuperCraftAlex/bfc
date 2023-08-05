@@ -10,11 +10,11 @@
 // supported architectures:
 // - 32bit x86
 //
-// supported brainfuck variations:
+// supported brainfuck variations/extensions:
 // - brainfuck
 //
 // credits:
-// - ote aka otesunki (help with x86)
+// - ote aka otesunki (help with x86; help with c; [a lot of other shit i already forgot])
 //
 // !WARNING¡ this file contains commented-out comments!
 // !DISCLAIMER¡ this is the least efficient code i ever wrote
@@ -78,12 +78,9 @@ void write_sqword_raw(FILE *fp, s_qword x) {write_x_raw(s_qword, x);}
 #define write_sqword(x) if(!gen_sources) {write_sqword_raw(fp, (s_qword)x);}
 
 
-#define warn(x) printf("%s", x); \
-    if (werror) {          \
-        return 1;          \
-    }
+#define warn(x) printf("warning: %s\n", x); if (werror) { return 1; };
 
-#define error(x) printf("%s", x); return 1;
+#define error(x) printf("error: %s\n", x); return 1;
 
 struct SymbolDef {
     size_t addr;
@@ -124,11 +121,12 @@ struct SymbolRef {
 #define add_sy_ref_RAW \
     sy_refs = realloc(sy_refs, sizeof(struct SymbolRef *) * (sy_refs_am + 1)); \
     struct SymbolRef *ref = malloc(sizeof(struct SymbolRef)); \
-    sy_refs[sy_refs_am++] = ref; \
+    sy_refs[sy_refs_am] = ref; \
     ref->name = i_name; \
     ref->type = i_type; \
     ref->pos = i_pos; \
-    ref->off = i_off;
+    ref->off = i_off; \
+    sy_refs_am ++;
 
 struct SymbolRef *add_sy_ref_func(struct SymbolRef **sy_refs, size_t sy_refs_am, size_t i_pos, enum SymbolRefType i_type, char *i_name, int i_off) {
     add_sy_ref_RAW
@@ -166,9 +164,10 @@ struct SymbolRef *add_sy_ref_func(struct SymbolRef **sy_refs, size_t sy_refs_am,
         /* i should use a macro for ^that buuuuut */ \
         /* ....yeah */ \
         struct SymbolDef *sy = malloc(sizeof(struct SymbolDef)); \
-        sy_defs[sy_defs_am++] = sy; \
+        sy_defs[sy_defs_am] = sy; \
         sy->name = i_name; \
         sy->addr = i_addr; \
+        sy_defs_am ++; \
     }
 
 // OTE YOU CAN LOOK AGAIN!
@@ -217,14 +216,10 @@ int main(int argc, char **argv) {
 
         if (c == 'a') {
             char *a = x+2;
-            if (!strcmp(a, "x86"))
-                arch = tg_x86;
-            else if (!strcmp(a, "arm"))
-                arch = tg_arm;
-            else if (!strcmp(a, "riscv"))
-                arch = tg_riscv;
-            else
-                error("Architecture not supported!\n");
+            if (!strcmp(a, "x86")) { arch = tg_x86; }
+            else if (!strcmp(a, "arm")) { arch = tg_arm; }
+            else if (!strcmp(a, "riscv")) { arch = tg_riscv; }
+            else { error("Architecture not supported!"); }
         }
         else if (c == 'm') {
             mode = atoi(x+2);
@@ -240,17 +235,20 @@ int main(int argc, char **argv) {
         }
     }
 
-    if (arch != tg_x86)
-        error("Architecture not supported yet!\n");
+    if (arch != tg_x86) {
+        error("Architecture not supported yet!");
+    }
 
-    if (cell_off < 0)
+    if (cell_off < 0) {
         cell_off = memsize / 2;
+        warn("Automatically set the cell offset");
+    }
+
+    if (mode != 32) {
+        error("Unsupported mode! Supported: 32");
+    }
 
     FILE *fp;
-
-    if (mode != 32)
-        error("Unsupported mode! Supported: 32\n");
-
     fp = fopen(argv[argc-2], "r");
     fseek(fp, 0L, SEEK_END);
     size_t size = ftell(fp);
@@ -336,6 +334,7 @@ int main(int argc, char **argv) {
 
     for (size_t i = 0; i < size; i++) {
         char c = buff[i];
+        putchar(c);
         if (c == '\n') {
             continue;
         }
@@ -511,6 +510,7 @@ int main(int argc, char **argv) {
             write_asm("    ret\n\n");
         }
     }
+    printf("ended compiller main loop!\n");
     fclose(fp);
     free(buff);
 
