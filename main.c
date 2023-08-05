@@ -26,6 +26,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <stdint.h>
+#include <stdarg.h>
 
 
 typedef uint8_t byte;
@@ -50,17 +51,31 @@ typedef int64_t s_qword;
 #define writef_asm(...) if(gen_sources) {fprintf(fp, __VA_ARGS__);}
 
 
-#define write_byte(x) if(!gen_sources) {fwrite(&((byte)x), sizeof(byte), 1, fp);}
-#define write_sbyte(x) if(!gen_sources) {fwrite(&((s_byte)x), sizeof(byte), 1, fp);}
+#define write_x_raw(datatype, x) {fwrite((datatype *) &x, sizeof(datatype), 1, fp);}
 
-#define write_word(x) if(!gen_sources) {fwrite(&((word)x), sizeof(word), 1, fp);}
-#define write_sword(x) if(!gen_sources) {fwrite(&((s_word)x), sizeof(s_word), 1, fp);}
+void write_byte_raw(FILE *fp, byte x) {write_x_raw(byte, x);}
+void write_sbyte_raw(FILE *fp, s_byte x) {write_x_raw(s_byte, x);}
 
-#define write_dword(x) if(!gen_sources) {fwrite(&((dword)x), sizeof(dword), 1, fp);}
-#define write_sdword(x) if(!gen_sources) {fwrite(&((s_dword)x), sizeof(s_dword), 1, fp);}
+void write_word_raw(FILE *fp, word x) {write_x_raw(word, x);}
+void write_sword_raw(FILE *fp, s_word x) {write_x_raw(s_word, x);}
 
-#define write_qword(x) if(!gen_sources) {fwrite(&((qword)x), sizeof(qword), 1, fp);}
-#define write_sqword(x) if(!gen_sources) {fwrite(&((s_qword)x), sizeof(s_qword), 1, fp);}
+void write_dword_raw(FILE *fp, dword x) {write_x_raw(dword, x);}
+void write_sdword_raw(FILE *fp, s_dword x) {write_x_raw(s_dword, x);}
+
+void write_qword_raw(FILE *fp, qword x) {write_x_raw(qword, x);}
+void write_sqword_raw(FILE *fp, s_qword x) {write_x_raw(s_qword, x);}
+
+#define write_byte(x) if(!gen_sources) {write_byte_raw(fp, (byte)x);}
+#define write_sbyte(x) if(!gen_sources) {write_sbyte_raw(fp, (s_byte)x);}
+
+#define write_word(x) if(!gen_sources) {write_byte_raw(fp, (word)x);}
+#define write_sword(x) if(!gen_sources) {write_sbyte_raw(fp, (s_word)x);}
+
+#define write_dword(x) if(!gen_sources) {write_dword_raw(fp, (dword)x);}
+#define write_sdword(x) if(!gen_sources) {write_sdword_raw(fp, (s_dword)x);}
+
+#define write_qword(x) if(!gen_sources) {write_qword_raw(fp, (qword)x);}
+#define write_sqword(x) if(!gen_sources) {write_sqword_raw(fp, (s_qword)x);}
 
 
 #define warn(x) printf("%s", x); \
@@ -78,54 +93,55 @@ struct SymbolDef {
 enum SymbolRefType {
     // unsigned integers
     // abs = "absolute"
-    abs16,
-    abs24,
-    abs32,
-    abs64,
+    ref_abs16,
+    ref_abs24,
+    ref_abs32,
+    ref_abs64,
 
     // 2s complement signed integers
     // rel = "relative"
-    rel8,
-    rel16,
-    rel32
+    ref_rel8,
+    ref_rel16,
+    ref_rel32
 };
 
 struct SymbolRef {
     size_t pos;               /* position of the reference (in the file) (to be overwritten) */
     enum SymbolRefType type;  /* type of the reference*/
     char *name;
-    unsigned int off;	      /* absolute offset */
+    int off;	              /* absolute*/
 
     /* only resolve this symbol if condition is true or when is_cond_rel == 0 */
     unsigned int is_cond_rel;
     int c_rel_backw_max;
-    int c_rel_baclw_min;
+    int c_rel_backw_min;
     int c_rel_forw_min;
     int c_rel_forw_max;
     unsigned int remove_left_ifn_c;  /* if the condition is false, it undos x bytes from left */
     unsigned int remove_right_ifn_c; /* if the condition is false, it undos x bytes from the right */
 };
 
-// thats 100% what macros are supposed to do
-// why shouldn't it?
-// ps: ote don't kill me, thanks
 #define add_sy_ref_RAW \
     sy_refs = realloc(sy_refs, sizeof(struct SymbolRef *) * (sy_refs_am + 1)); \
     struct SymbolRef *ref = malloc(sizeof(struct SymbolRef)); \
     sy_refs[sy_refs_am++] = ref; \
-    ref->name = name; \
-    ref->type = type; \
-    ref->pos = pos; \
-    ref->off = off;
+    ref->name = i_name; \
+    ref->type = i_type; \
+    ref->pos = i_pos; \
+    ref->off = i_off;
 
+struct SymbolRef *add_sy_ref_func(struct SymbolRef **sy_refs, size_t sy_refs_am, size_t i_pos, enum SymbolRefType i_type, char *i_name, int i_off) {
+    add_sy_ref_RAW
+    ref->is_cond_rel = 0;
+    return ref;
+}
 
 #define add_sy_ref(pos, type, name, off) if (!gen_sources) { \
-        add_sy_ref_RAW \
-        ref->is_cond_rel = 0; \
+        add_sy_ref_func(sy_refs, sy_refs_am, pos, type, name, off); \
     }
 
 #define add_sy_ref_cond(pos, type, name, off, backw_max, backw_min, forw_min, forw_max, leftrem, rightrem) if (!gen_sources) { \
-        add_sy_ref_RAW \
+        struct SymbolRef *ref = add_sy_ref_func(sy_refs, sy_refs_am, pos, type, name, off); \
         ref->is_cond_rel = 1; \
         ref->c_rel_backw_max = backw_max; \
         ref->c_rel_backw_min = backw_min; \
@@ -145,26 +161,38 @@ struct SymbolRef {
 // (had to do it again)
 // (OTE IM SORRY BUT DONT LOOK)
 // okay
-#define add_sy_def(addr, name) if (!gen_sources) { \
+#define add_sy_def(i_addr, i_name) if (!gen_sources) { \
         sy_defs = realloc(sy_defs, sizeof(struct SymbolDef *) * (sy_refs_am + 1)); \
         /* i should use a macro for ^that buuuuut */ \
         /* ....yeah */ \
         struct SymbolDef *sy = malloc(sizeof(struct SymbolDef)); \
         sy_defs[sy_defs_am++] = sy; \
-        sy->name = name; \
-        sy->addr = arddr; \
+        sy->name = i_name; \
+        sy->addr = i_addr; \
     }
 
 // OTE YOU CAN LOOK AGAIN!
 
 // is this macro okay?
-#define write_bytes(x, amount) for (size_t x = 0; x < amount; x++) { write_byte(x); }
+#define write_bytes(x, amount) for (size_t i = 0; i < amount; i++) { write_byte(x); }
 
 enum target_arch {
     tg_x86,
     tg_arm,
     tg_riscv
 };
+
+char *strformat(const char *format, ...) {
+    va_list args;
+    va_start(args, format);
+
+    char *buff = malloc(strlen(format) * 100);
+
+    vsprintf(buff, format, args);
+
+    va_end(args);
+    return buff;
+}
 
 int main(int argc, char **argv) {
     int werror = 0;
@@ -281,12 +309,16 @@ int main(int argc, char **argv) {
 
     char *fn = argv[argc-1];
     fp = fopen(fn, "w");
+    if (fp == NULL) {
+        error("error writing file");
+        return 1;
+    }
     int localid = 0;
 
-    struct SymbolDef *sy_defs = malloc(1 * sizeof(sys_defs *));
+    struct SymbolDef **sy_defs = malloc(1 * sizeof(struct SymbolDef *));
     size_t sy_defs_am = 0;
 
-    struct SymbolRef *sy_refs = malloc(1 * sizeof(sys_defs *));
+    struct SymbolRef **sy_refs = malloc(1 * sizeof(struct SymbolDef *));
     size_t sy_refs_am = 0;
 
     write_asm("section .data\ncells:\n");
@@ -298,8 +330,8 @@ int main(int argc, char **argv) {
     write_bytes(0x00, memsize);
     // code section
     add_sy_def(ftell(fp), "_start");
-    write_byte(0xb9);                               	         /* mov ecx, IMMEDIATE-DWORD  */
-    add_sy_ref(ftell(fp), SymbolRefType.abs32, "cells", cell_off);
+    write_byte(0xb9);                                    /* mov ecx, IMMEDIATE-DWORD  */
+    add_sy_ref(ftell(fp), ref_abs32, "cells", cell_off);
     write_dword(0);
 
     for (size_t i = 0; i < size; i++) {
@@ -357,7 +389,7 @@ int main(int argc, char **argv) {
                 // // how the fuck do i implement relative calls and jumps?
                 // // anywaaaays
                 // write_byte(0xe8);        /* call */
-                // add_sy_ref(ftell(fp), SymbolRefType.abs32, "putchar", 0);
+                // add_sy_ref(ftell(fp), ref_abs32, "putchar", 0);
 
                 // partially implemented cool shit, so now i can do:
                 // this one byte is only requiered in 32 bit mode
@@ -365,19 +397,19 @@ int main(int argc, char **argv) {
                 // in 16 bit mode, not requiered
                 write_byte(0x66);	 /* 16 bit; call rel16/32 */
                 write_byte(0xe8);
-                add_sy_ref_cond(ftell(fp), SymbolRefType.rel16, "putchar", SWORD_MAX, 0, 0, SWORD_MAX, 2, 0);
+                add_sy_ref_cond(ftell(fp), ref_rel16, "putchar", 0, SWORD_MAX, 0, 0, SWORD_MAX, 2, 0);
                 // in case the offset is bigger than signed 16 bit
                 write_byte(0xe8); 	 /* call rel16/32 */
-                add_sy_ref_cond(ftell(fp), SymbolRefType.rel32, "putchar", SDWORD_MAX, SWORD_MAX+1, SWORD_MAX+1, SDWORD_MAX, 1, 2);
+                add_sy_ref_cond(ftell(fp), ref_rel32, "putchar", 0, SDWORD_MAX, SWORD_MAX+1, SWORD_MAX+1, SDWORD_MAX, 1, 2);
                 write_dword(0);
             }
             else if (c == ',') {    // input char cell at pt
                 write_asm("    call getchar\n");
                 write_byte(0x66);	 /* 16 bit; call rel16/32 */
                 write_byte(0xe8);
-                add_sy_ref_cond(ftell(fp), SymbolRefType.rel16, "getchar", SWORD_MAX, 0, 0, SWORD_MAX, 2, 0);
+                add_sy_ref_cond(ftell(fp), ref_rel16, "getchar", 0, SWORD_MAX, 0, 0, SWORD_MAX, 2, 0);
                 write_byte(0xe8); 	 /* call rel16/32 */
-                add_sy_ref_cond(ftell(fp), SymbolRefType.rel32, "getchar", SDWORD_MAX, SWORD_MAX+1, SWORD_MAX+1, SDWORD_MAX, 1, 2);
+                add_sy_ref_cond(ftell(fp), ref_rel32, "getchar", 0, SDWORD_MAX, SWORD_MAX+1, SWORD_MAX+1, SDWORD_MAX, 1, 2);
                 write_dword(0);
             }
             else if (c == '[') {    // jumps after the corresponding ']' instruction if the cell val is 0
@@ -423,13 +455,13 @@ int main(int argc, char **argv) {
                     write_byte(0x66);     /* 16 bit; je rel16 */
                     write_byte(0x0F);
                     write_byte(0x84);
-                    add_sy_ref_cond(ftell(fp), SymbolRefType.rel16, sprintf("close_%i", corr), SWORD_MAX, 0, 0, SWORD_MAX, 2, 0);
+                    add_sy_ref_cond(ftell(fp), ref_rel16, strformat("close_%i", corr), 0, SWORD_MAX, 0, 0, SWORD_MAX, 2, 0);
                     write_byte(0x0F); 	  /* je rel32 */
                     write_byte(0x84);
-                    add_sy_ref_cond(ftell(fp), SymbolRefType.rel32, sprintf("close_%i", corr), SDWORD_MAX, SWORD_MAX+1, SWORD_MAX+1, SDWORD_MAX, 1, 2);
+                    add_sy_ref_cond(ftell(fp), ref_rel32, strformat("close_%i", corr), 0, SDWORD_MAX, SWORD_MAX+1, SWORD_MAX+1, SDWORD_MAX, 1, 2);
                     write_dword(0);
 
-                    add_sy_def(ftell(fp), sprintf("open_%i", corr));
+                    add_sy_def(ftell(fp), strformat("open_%i", corr));
 
                 }
                 else {
@@ -486,10 +518,10 @@ int main(int argc, char **argv) {
         // todo: convert file with name fn to elf
     }
 
-    for (size_t i = 0; i < sy_refs_am)
+    for (size_t i = 0; i < sy_refs_am; i++)
         free(sy_refs[i]);
 
-    for (size_t i = 0; i < sy_defs_am)
+    for (size_t i = 0; i < sy_defs_am; i++)
         free(sy_defs[i]);
 
     free(sy_refs);
