@@ -1,6 +1,6 @@
-// ======================================================================================
-// ======================= B R A I N F U C K   C O M P I L E R ==========================
-// ======================================================================================
+// ============================================================================================
+// ======================= B R A I N F U C K   C O M P I L E R ================================
+// ============================================================================================
 //
 // (written by alex aka alex_s168)
 //
@@ -191,12 +191,31 @@ char *strformat(const char *format, ...) {
 }
 
 
+int gen_exit_syscall(int mode, enum target_arch arch, FILE *fp, int gen_sources,
+                     byte code) {
+    if (mode == 32 && arch == tg_x86) {
+        write_asm("    mov eax, 1\n");
+        writef_asm("    mov ebx, %i\n", code);
+        write_asm("    int 0x80\n");
+
+        write_byte(0xb8);           /* mov */
+        write_dword(1);
+        write_byte(0xbb);           /* mov */
+        write_dword(code);
+        write_byte(0xcd);           /* int */
+        write_byte(0x80);
+        return 0;
+    }
+
+    return 1;
+}
+
 // requires pointer to text to be in the cell pointer register
 // preserves cell pointer register
 // stream 0 is stdin
 // if end-of-file: move 0 into cell at cell pointer register
 int gen_read_syscall(int mode, enum target_arch arch, FILE *fp, int gen_sources,
-                     udword stream, size_t amount) {
+                     dword stream, size_t amount) {
     if (mode == 32 && arch == tg_x86) {
         write_asm("    mov eax, 3\n");
         writef_asm("    mov ebx, %iu\n", stream);
@@ -371,7 +390,7 @@ int main(int argc, char **argv) {
     write_bytes(0x00, memsize);
     // code section
     add_sy_def(ftell(fp), "_start");
-    write_byte(0xb9);                                    /* mov ecx, IMMEDIATE-DWORD  */
+    write_byte(0xb9);                                    /* mov */
     add_sy_ref(ftell(fp), ref_abs32, "cells", cell_off);
     write_dword(0);
 
@@ -515,16 +534,20 @@ int main(int argc, char **argv) {
     }
     if (mode32) {
         // generate exit(0) syscall
-        write_asm("end:\n    mov eax,1\n    mov ebx,0\n    int 0x80\n\n");
+        write_asm("end:\n");
+        add_sy_def(ftell(fp), "end");
+        gen_exit_syscall(mode, target_arch, fp, gen_sources, 0);
+
         if (used_in_syscall) {
             // generate read(0, pt, 1) syscall
             write_asm("getchar:\n");
             add_sy_def(ftell(fp), "getchar");
             gen_read_syscall(mode, target_arch, fp, gen_sources, 0, 1);
             write_asm("    ret\n");
-            write_byte(0xC3);
+            write_byte(0xC3);             /* ret */
             localid ++;
         }
+
         if (used_out_syscall) {
             // generate write(1, pt, 1) syscall
             write_asm("putchar:\n");
@@ -537,8 +560,12 @@ int main(int argc, char **argv) {
             write_asm("    ret\n\n");
         }
     }
-    fclose(fp);
+
     free(buff);
+
+    // todo: resolve symbols
+
+    fclose(fp);
 
     if (!gen_sources) {
         // todo: convert file with name [fn] to elf
