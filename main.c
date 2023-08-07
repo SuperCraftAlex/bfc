@@ -11,6 +11,11 @@
         return 1;          \
     }
 
+int roundUp2(int numToRound) {
+    assert(2 && ((multiple & (2 - 1)) == 0));
+    return (numToRound + 2 - 1) & -2;
+}
+
 // generates nasm code
 int main(int argc, char **argv) {
     int werror = 0;
@@ -20,7 +25,7 @@ int main(int argc, char **argv) {
 
     if (argc < 3) {
         printf("brainfuck compiller written by alex_s168\n\n");
-        printf("Usage: bfc (-m(32|64)) (-s[mem size]) (-p[amount of pp passes]) (-o[cell starting offset]) (-S) (-P) [infile] [outfile]\n\n");
+        printf("Usage: bfc (-m(32|64)) (-s[mem size]) (-p[amount of pp passes]) (-o[cell starting offset]) (-S) (-P) (-e[extensions]) [infile] [outfile]\n\n");
         printf(" -m[mode]          set the mode of the architecture\n");
         printf("    32                32 bit\n");
         printf("    64                64 bit\n");
@@ -29,6 +34,10 @@ int main(int argc, char **argv) {
         printf(" -o[offset]        sets the starting position of the pointer\n");
         printf(" -S                only outputs the nasm code\n");
         printf(" -P                only runs the preprocessor\n");
+        printf(" -e[extension]     enables the specified extension (seperated by comma)\n");
+        printf("\nAvailable extensions:\n");
+        printf(" - bfc-builtin-1   adds a cpuid-like instruction, a get-pc-instruction and a jump instruction\n");
+        printf("\nDocumentation:\n");
         return 1;
     }
 
@@ -38,6 +47,8 @@ int main(int argc, char **argv) {
     int only_pp = 0;
     int cell_off = -1;
     int pp_passes = 1;
+
+    int ext_bfc_builtin_1 = 0;
 
     for (int i = 0; i < argc-2; i ++) {
         char *x = argv[i+1];
@@ -60,6 +71,18 @@ int main(int argc, char **argv) {
         }
         else if (c == 'p') {
             pp_passes = atoi(x+2);
+        }
+        else if (c == 'e') {
+            size_t last_off = 0;
+            for (size_t j = 0; j < strlen(x+1); j ++) {
+                char a = x[1+j];
+                if (a == ',') {
+                    x[1+j] = 0;
+                    char *ext_name = x+last_off;
+                    ext_bfc_builtin_1 = !strcmp(ext_name, "bfc-builtin-1");
+                    last_off = j+2;
+                }
+            }
         }
     }
 
@@ -105,13 +128,17 @@ int main(int argc, char **argv) {
     }
     fp = fopen(fn, "w");
 
+    char av_symbols[100] = "+-><[]";
+    if (ext_bfc_builtin_1)
+        strcat(av_symbols, "?$:#");
+
     // preprocessor
     for (int pass = 0; pass < pp_passes; pass ++) {
         char *buff2 = malloc(size+1);
         int y = 0;
         for (size_t i = 0; i < size; i++) {
             char c = buff[i];
-            if (!(c == '>' || c == '<' || c == '+' || c == '-' || c == '.' || c == ',' || c == '[' || c == ']')) {
+            if (strchr(av_symbols, c) == NULL) {
                 continue;
             }
             // remove contradicting shit
@@ -146,7 +173,24 @@ int main(int argc, char **argv) {
             continue;
         }
         if (mode32) {
-            if (c == '>') {         // increment pt
+            if (ext_bfc_builtin_1 && c == '?') {   // cpuid
+                // executing the cpuid instruction puts the byte of the cpuid constant list at the position of the cpuid counter into the current cell and increments the cpuid pointer
+                // cpuid positions:
+                // 0: cpuid step cell position: 1 byte int; example: 2 (means that in the step counter of the cpuid inst is in the tape at pos 2)
+                // 1: bit width of each cell: 1 byte int; example: 8
+                // 2: programm address bits (not tape): 1 byte int; example: 16
+                // 3: amount of avaliable cells / 4: 1 byte int; example: 32
+                // 4: starting position of the pointer / 4: 1 byte int; example: 8
+                // 5: safe cells to the left of the cpuid defined starting position: 1 byte int; example: 8 (means that you can safely use 8 cells to the left of the starting position given by cpuid)
+                // 6: compiller name: 8 bytes string (ascii; 0 terminated); example: "bfc\0     "
+                // 14: compiller version: 2 byte int; example: 6
+                // 16: target architecture: 7 byte string (ascii; 0 terminated); example: "x86_64\0  "
+                used_cpuid = 1;
+                fputs("    mov byte [ecx], [cpuid+cpuid_ptr]\n", fp);
+                fputs("    inc byte [cpuid_ptr]\n", fp);
+                continue;
+            }
+            else if (c == '>') {         // increment pt
                 int am = (int)strspn(buff + i, ">");
                 if (am > 1) {
                     fprintf(fp, "    add ecx, %i\n", am);
@@ -325,6 +369,22 @@ int main(int argc, char **argv) {
             fputs("    pop ecx\n", fp);
             fputs("    ret\n\n", fp);
         }
+    }
+    if (used_cpuid) {
+        fputs("cpuid:\n", fp);
+                // 0: cpuid step cell position: 1 byte int; example: 2 (means that in the step counter of the cpuid inst is in the tape at pos 2)
+                // 1: bit width of each cell: 1 byte int; example: 8
+                // 2: programm address bits (not tape): 1 byte int; example: 16
+                // 3: amount of avaliable cells / 4: 1 byte int; example: 32
+                // 4: starting position of the pointer / 4: 1 byte int; example: 8
+                // 5: safe cells to the left of the cpuid defined starting position: 1 byte int; example: 8 (means that you can safely use 8 cells to the left of the starting position given by cpuid)
+                // 6: compiller name: 8 bytes string (ascii; 0 terminated); example: "bfc\0     "
+                // 14: compiller version: 2 byte int; example: 6
+                // 16: target architecture: 7 byte string (ascii; 0 terminated); example: "x86_64\0  "
+        fprintf(fp, "    db %i\n", cpuid_step_pos);
+        fputs("    db 8\n");
+        fputs("    db 0\n"); // TODO: prog address size byte
+        fprintf(fp, "    db %i\n", cpuid_step_pos);
     }
     fclose(fp);
     free(buff);
