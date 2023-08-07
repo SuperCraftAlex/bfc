@@ -25,7 +25,7 @@ int main(int argc, char **argv) {
 
     if (argc < 3) {
         printf("brainfuck compiller written by alex_s168\n\n");
-        printf("Usage: bfc (-m(32|64)) (-s[mem size]) (-p[amount of pp passes]) (-o[cell starting offset]) (-S) (-P) (-e[extensions]) (-rl[amount]) [infile] [outfile]\n\n");
+        printf("Usage: bfc (-m(32|64)) (-s[mem size]) (-p[amount of pp passes]) (-o[cell starting offset]) (-S) (-P) (-e[extensions]) (-rl[amount]) (-ro[amount]) [infile] [outfile]\n\n");
         printf(" -m[mode]          set the mode of the architecture\n");
         printf("    32                32 bit\n");
         printf("    64                64 bit\n");
@@ -148,7 +148,7 @@ int main(int argc, char **argv) {
     unsigned int cells_left_reserved = 0;
     
     if (ext_bfc_builtin_1) {
-        strcat(av_symbols, "?$:#");
+        strcat(av_symbols, "?#");
         cpuid_step_pos = cells_left_reserved;
         cells_left_reserved ++;
     }
@@ -216,6 +216,10 @@ int main(int argc, char **argv) {
                 fputs("    mov al, [cpuid + cpuid_ptr]\n", fp);
                 fputs("    mov byte [ecx], al\n", fp);
                 fputs("    inc byte [cpuid_ptr]\n", fp);
+                continue;
+            }
+            else if (ext_bfc_builtin_1 && c == '#') {   // move pointer to (absolute) (only works for low memory = lowest 8 bits)
+                fputs("    movzx ecx, byte [ecx]\n", fp);
                 continue;
             }
             else if (c == '>') {         // increment pt
