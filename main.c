@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <assert.h>
 
 #define mode32 (mode == 32)
 #define mode64 (mode == 64)
@@ -12,7 +13,7 @@
     }
 
 int roundUp2(int numToRound) {
-    assert(2 && ((multiple & (2 - 1)) == 0));
+    assert(2 && ((2 & (2 - 1)) == 0));
     return (numToRound + 2 - 1) & -2;
 }
 
@@ -143,10 +144,11 @@ int main(int argc, char **argv) {
     }
     fp = fopen(fn, "w");
 
-    char av_symbols[100] = "+-><[]";
+    char av_symbols[100] = "+-><[].,";
 
     unsigned int cells_left_reserved = 0;
-    
+    unsigned int cpuid_step_pos = 0;
+
     if (ext_bfc_builtin_1) {
         strcat(av_symbols, "?#");
         cpuid_step_pos = cells_left_reserved;
@@ -159,14 +161,17 @@ int main(int argc, char **argv) {
         cells_left_reserved = reserve_left_overr;
     }
     else {
-        // 30 cells on the beginning reserved for the user
-        cells_left_reserved += 30;
-        cpuid_step_pos += 30;
+        // 10 cells on the beginning reserved for the user
+        cells_left_reserved += 10;
+        cpuid_step_pos += 10;
     }
+
+    if (memsize + 2 < cells_left_reserved)
+        warn("memory size to small")
 
     memsize = roundUp2(memsize);
     cell_off = roundUp2(cell_off) + cells_left_reserved + reserve_left_user;
-    
+
     // preprocessor
     for (int pass = 0; pass < pp_passes; pass ++) {
         char *buff2 = malloc(size+1);
@@ -196,7 +201,8 @@ int main(int argc, char **argv) {
         return 0;
     }
 
-    int localid = 0;
+    unsigned int localid = 0;
+    unsigned int used_cpuid = 0;
 
     // nasm header
     fputs("section .data\ncells:\n", fp);
@@ -415,15 +421,15 @@ int main(int argc, char **argv) {
         // 18: has ecpuid: 1 byte boolean; example: 1
         fputs("cpuid:\n", fp);
         fprintf(fp, "    db %i\n", cpuid_step_pos);
-        fputs("    db 8\n");
-        fputs("    db 0\n"); // TODO: prog address size byte
+        fputs("    db 8\n", fp);
+        fputs("    db 0\n", fp); // TODO: prog address size byte
         fprintf(fp, "    db %i\n", memsize / 4);
         fprintf(fp, "    db %i\n", cell_off / 4);
         fprintf(fp, "    db %i\n", cell_off - cells_left_reserved);
-        fputs("    db \"alex/bfc\", 0\n");
-        fputs("    db 1\n");
-        fputs("    db \"x86_32\", 0, 0\n");
-        fputs("    db 1\n");
+        fputs("    db \"alex/bfc\", 0\n", fp);
+        fputs("    db 1\n", fp);
+        fputs("    db \"x86_32\", 0, 0\n", fp);
+        fputs("    db 1\n", fp);
 
         // ecpuid
         // none yet
