@@ -170,7 +170,7 @@ struct SymbolRef *add_sy_ref_func(struct SymbolRef ***sy_refs, size_t *sy_refs_a
 // OTE YOU CAN LOOK AGAIN!
 
 // is this macro okay?
-#define write_bytes(x, amount) for (size_t i = 0; i < amount; i++) { write_byte(x); }
+#define write_bytes(x, amount) for (size_t i = 0; i < (size_t)amount; i++) { write_byte(x); }
 
 enum target_arch {
     tg_x86,
@@ -191,7 +191,7 @@ char *strformat(const char *format, ...) {
 }
 
 
-int gen_exit_syscall(int mode, enum target_arch arch, FILE *fp, int gen_sources,
+int gen_exit_syscall(int mode, enum target_arch arch, FILE *fp, int gen_sources, int *localid,
                      byte code) {
     if (mode == 32 && arch == tg_x86) {
         write_asm("    mov eax, 1\n");
@@ -206,7 +206,9 @@ int gen_exit_syscall(int mode, enum target_arch arch, FILE *fp, int gen_sources,
         write_byte(0x80);
         return 0;
     }
-
+    // gcc wants me to use localid
+    // so i use it:
+    (*localid) = *localid;
     return 1;
 }
 
@@ -214,7 +216,7 @@ int gen_exit_syscall(int mode, enum target_arch arch, FILE *fp, int gen_sources,
 // preserves cell pointer register
 // stream 0 is stdin
 // if end-of-file: move 0 into cell at cell pointer register
-int gen_read_syscall(int mode, enum target_arch arch, FILE *fp, int gen_sources,
+int gen_read_syscall(int mode, enum target_arch arch, FILE *fp, int gen_sources, int *localid,
                      dword stream, size_t amount) {
     if (mode == 32 && arch == tg_x86) {
         write_asm("    mov eax, 3\n");
@@ -224,9 +226,9 @@ int gen_read_syscall(int mode, enum target_arch arch, FILE *fp, int gen_sources,
         write_asm("    int 0x80\n");
         write_asm("    pop ecx\n");
         write_asm("    test eax, eax\n");
-        writef_asm("    jnz .L%i\n", localid);
+        writef_asm("    jnz .L%i\n", *localid);
         write_asm("    mov byte [ecx], 0\n");
-        writef_asm(".L%i\n", localid);
+        writef_asm(".L%i\n", *localid);
 
         write_byte(0xB8);            /* mov */
         write_dword(3);
@@ -249,7 +251,7 @@ int gen_read_syscall(int mode, enum target_arch arch, FILE *fp, int gen_sources,
         write_byte(0x00);
 
         if (gen_sources)
-            localid ++;
+            (*localid) ++;
         return 0;
     }
     return 1;
@@ -452,7 +454,7 @@ int main(int argc, char **argv) {
                 add_sy_ref_cond(ftell(fp), ref_rel16, "putchar", 0, SWORD_MAX, 0, 0, SWORD_MAX, 2, 0);
                 // in case the offset is bigger than signed 16 bit
                 write_byte(0xe8); 	 /* call rel16/32 */
-                add_sy_ref_cond(ftell(fp), ref_rel32, "putchar", 0, SDWORD_MAX, SWORD_MAX+1, SWORD_MAX+1, SDWORD_MAX, 1, 2);
+                add_sy_ref_cond(ftell(fp), ref_rel32, "putchar", 0, SDWORD_MAX, SWORD_MAX, SWORD_MAX, SDWORD_MAX, 1, 2);
                 write_dword(0);
             }
             else if (c == ',') {    // input char cell at pt
@@ -461,7 +463,7 @@ int main(int argc, char **argv) {
                 write_byte(0xe8);
                 add_sy_ref_cond(ftell(fp), ref_rel16, "getchar", 0, SWORD_MAX, 0, 0, SWORD_MAX, 2, 0);
                 write_byte(0xe8); 	 /* call rel16/32 */
-                add_sy_ref_cond(ftell(fp), ref_rel32, "getchar", 0, SDWORD_MAX, SWORD_MAX+1, SWORD_MAX+1, SDWORD_MAX, 1, 2);
+                add_sy_ref_cond(ftell(fp), ref_rel32, "getchar", 0, SDWORD_MAX, SWORD_MAX, SWORD_MAX, SDWORD_MAX, 1, 2);
                 write_dword(0);
             }
             else if (c == '[') {    // jumps after the corresponding ']' instruction if the cell val is 0
@@ -497,7 +499,7 @@ int main(int argc, char **argv) {
                     add_sy_ref_cond(ftell(fp), ref_rel16, strformat("close_%i", corr), 0, SWORD_MAX, 0, 0, SWORD_MAX, 3, 0);
                     write_byte(0x0F); 	  /* je rel32 */
                     write_byte(0x84);
-                    add_sy_ref_cond(ftell(fp), ref_rel32, strformat("close_%i", corr), 0, SDWORD_MAX, SWORD_MAX+1, SWORD_MAX+1, SDWORD_MAX, 2, 2);
+                    add_sy_ref_cond(ftell(fp), ref_rel32, strformat("close_%i", corr), 0, SDWORD_MAX, SWORD_MAX, SWORD_MAX, SDWORD_MAX, 2, 2);
                     write_dword(0);
 
                     add_sy_def(ftell(fp), strformat("open_%i", corr));
@@ -518,13 +520,13 @@ int main(int argc, char **argv) {
                 write_byte(0x66);         /* 16 bit; jnz rel16 */
                 write_byte(0x0F);
                 write_byte(0x85);
-                add_sy_ref_cond(ftell(fp), ref_rel16, strformat("open_%i", corr), 0, SWORD_MAX, 0, 0, SWORD_MAX, 3, 0);
+                add_sy_ref_cond(ftell(fp), ref_rel16, strformat("open_%i", i), 0, SWORD_MAX, 0, 0, SWORD_MAX, 3, 0);
                 write_byte(0x0F); 	  /* jnz rel32 */
                 write_byte(0x85);
-                add_sy_ref_cond(ftell(fp), ref_rel32, strformat("open_%i", corr), 0, SDWORD_MAX, SWORD_MAX+1, SWORD_MAX+1, SDWORD_MAX, 2, 2);
+                add_sy_ref_cond(ftell(fp), ref_rel32, strformat("open_%i", i), 0, SDWORD_MAX, SWORD_MAX, SWORD_MAX, SDWORD_MAX, 2, 2);
                 write_dword(0);
 
-                add_sy_def(ftell(fp), strformat("close_%i", corr));
+                add_sy_def(ftell(fp), strformat("close_%i", i));
 
             }
             else {
@@ -536,13 +538,13 @@ int main(int argc, char **argv) {
         // generate exit(0) syscall
         write_asm("end:\n");
         add_sy_def(ftell(fp), "end");
-        gen_exit_syscall(mode, target_arch, fp, gen_sources, 0);
+        gen_exit_syscall(mode, arch, fp, gen_sources, &localid, 0);
 
         if (used_in_syscall) {
             // generate read(0, pt, 1) syscall
             write_asm("getchar:\n");
             add_sy_def(ftell(fp), "getchar");
-            gen_read_syscall(mode, target_arch, fp, gen_sources, 0, 1);
+            gen_read_syscall(mode, arch, fp, gen_sources, &localid, 0, 1);
             write_asm("    ret\n");
             write_byte(0xC3);             /* ret */
             localid ++;
