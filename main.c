@@ -7,10 +7,10 @@
 #define mode32 (mode == 32)
 #define mode64 (mode == 64)
 
-#define warn(x) printf(x); \
+#define warn(x) {printf(x);\
     if (werror) {          \
         return 1;          \
-    }
+    }}
 
 int roundUp2(int numToRound) {
     assert(2 && ((2 & (2 - 1)) == 0));
@@ -39,7 +39,7 @@ int main(int argc, char **argv) {
         printf(" -rl[amount]       reserves x cells on the beginning of the tape (starting at pos 0), before the starting position of the pointer\n");
         printf(" -ro[amount]       overrides the amount of automatically left reserved cells\n");
         printf("\nAvailable extensions:\n");
-        printf(" - bfc-builtin-1   adds a cpuid-like instruction, a get-pc-instruction and a jump instruction\n");
+        printf(" - bfc-builtin-1   adds a cpuid-like instruction, a get-pc-instruction and a jump instruction\n\n");
         printf("\nDocumentation:\n");
         return 1;
     }
@@ -51,8 +51,8 @@ int main(int argc, char **argv) {
     int cell_off = -1;
     int pp_passes = 1;
 
-    int ext_bfc_builtin_1 = 0;
-    int reserve_left_user = 0;
+    unsigned int ext_bfc_builtin_1 = 0;
+    unsigned int reserve_left_user = 0;
     int reserve_left_overr = -1;
 
     for (int i = 0; i < argc-2; i ++) {
@@ -155,8 +155,8 @@ int main(int argc, char **argv) {
         cells_left_reserved ++;
     }
 
-    if (reserve_left_overr != -1) {
-        if (reserve_left_overr < cells_left_reserved)
+    if (reserve_left_overr > -1) {
+        if (reserve_left_overr < (int)cells_left_reserved)
             warn("The reserve left override value does not fit all requiered space left! This might cause problems.");
         cells_left_reserved = reserve_left_overr;
     }
@@ -166,7 +166,7 @@ int main(int argc, char **argv) {
         cpuid_step_pos += 10;
     }
 
-    if (memsize + 2 < cells_left_reserved)
+    if (memsize + 2 < (int)cells_left_reserved)
         warn("memory size to small")
 
     memsize = roundUp2(memsize);
